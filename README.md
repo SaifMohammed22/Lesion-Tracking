@@ -13,7 +13,7 @@ A comprehensive tool for tracking and labeling lesions in baseline and follow-up
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+conda env create --file environment.yml
 ```
 
 ## Usage
