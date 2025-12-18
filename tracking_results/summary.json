@@ -1,0 +1,19 @@
+{
+  "baseline_lesion_count": 15,
+  "followup_lesion_count": 20,
+  "matched_lesions": 15,
+  "categories": {
+    "stable": 5,
+    "growing": 7,
+    "shrinking": 3,
+    "new": 5,
+    "resolved": 0
+  },
+  "total_baseline_volume_mm3": 2261.0,
+  "total_followup_volume_mm3": 3286.0,
+  "volume_change": {
+    "absolute_change_mm3": 1025.0,
+    "relative_change": 0.4533392304290137,
+    "percent_change": 45.33392304290137
+  }
+}

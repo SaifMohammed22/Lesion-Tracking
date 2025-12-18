@@ -1,0 +1,2 @@
+[console_scripts]
+lesion-tracker = lesion_tracker.cli:main

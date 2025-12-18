@@ -1,0 +1,231 @@
+{
+  "timestamp": "2025-12-18T20:45:08.242729",
+  "parameters": {
+    "overlap_threshold": 0.3,
+    "distance_threshold_mm": 10.0,
+    "growth_threshold": 0.25,
+    "shrink_threshold": 0.25
+  },
+  "registration_check": {
+    "correlation": 0.9270927975124357,
+    "mutual_information": -0.5458102591924994,
+    "aligned": true
+  },
+  "baseline_lesion_count": 15,
+  "followup_lesion_count": 20,
+  "correspondences": [
+    {
+      "baseline_label": 14,
+      "followup_label": 20,
+      "baseline_volume_mm3": 40.0,
+      "followup_volume_mm3": 9.0,
+      "volume_change_mm3": -31.0,
+      "volume_change_percent": -77.5,
+      "category": "shrinking",
+      "overlap_ratio": 0.7777777777777778,
+      "centroid_distance_mm": 2.3013281189589367
+    },
+    {
+      "baseline_label": 3,
+      "followup_label": 3,
+      "baseline_volume_mm3": 250.0,
+      "followup_volume_mm3": 270.0,
+      "volume_change_mm3": 20.0,
+      "volume_change_percent": 8.0,
+      "category": "stable",
+      "overlap_ratio": 0.668,
+      "centroid_distance_mm": 2.005781831905358
+    },
+    {
+      "baseline_label": 1,
+      "followup_label": 2,
+      "baseline_volume_mm3": 455.0,
+      "followup_volume_mm3": 644.0,
+      "volume_change_mm3": 189.0,
+      "volume_change_percent": 41.53846153846154,
+      "category": "growing",
+      "overlap_ratio": 0.5868131868131868,
+      "centroid_distance_mm": 3.6759445046599284
+    },
+    {
+      "baseline_label": 2,
+      "followup_label": 1,
+      "baseline_volume_mm3": 428.0,
+      "followup_volume_mm3": 748.0,
+      "volume_change_mm3": 320.0,
+      "volume_change_percent": 74.76635514018692,
+      "category": "growing",
+      "overlap_ratio": 0.5070093457943925,
+      "centroid_distance_mm": 3.3758239840937434
+    },
+    {
+      "baseline_label": 6,
+      "followup_label": 9,
+      "baseline_volume_mm3": 144.0,
+      "followup_volume_mm3": 120.0,
+      "volume_change_mm3": -24.0,
+      "volume_change_percent": -16.666666666666664,
+      "category": "stable",
+      "overlap_ratio": 0.38333333333333336,
+      "centroid_distance_mm": 2.6156111488711034
+    },
+    {
+      "baseline_label": 12,
+      "followup_label": 12,
+      "baseline_volume_mm3": 48.0,
+      "followup_volume_mm3": 79.0,
+      "volume_change_mm3": 31.0,
+      "volume_change_percent": 64.58333333333334,
+      "category": "growing",
+      "overlap_ratio": 0.3541666666666667,
+      "centroid_distance_mm": 1.863159207861456
+    },
+    {
+      "baseline_label": 4,
+      "followup_label": 4,
+      "baseline_volume_mm3": 201.0,
+      "followup_volume_mm3": 225.0,
+      "volume_change_mm3": 24.0,
+      "volume_change_percent": 11.940298507462686,
+      "category": "stable",
+      "overlap_ratio": 0.34328358208955223,
+      "centroid_distance_mm": 3.221088438658173
+    },
+    {
+      "baseline_label": 10,
+      "followup_label": 16,
+      "baseline_volume_mm3": 74.0,
+      "followup_volume_mm3": 56.0,
+      "volume_change_mm3": -18.0,
+      "volume_change_percent": -24.324324324324326,
+      "category": "stable",
+      "overlap_ratio": 0.32142857142857145,
+      "centroid_distance_mm": 3.422164438288834
+    },
+    {
+      "baseline_label": 5,
+      "followup_label": 5,
+      "baseline_volume_mm3": 151.0,
+      "followup_volume_mm3": 184.0,
+      "volume_change_mm3": 33.0,
+      "volume_change_percent": 21.85430463576159,
+      "category": "stable",
+      "overlap_ratio": 0.31125827814569534,
+      "centroid_distance_mm": 2.2824167833620415
+    },
+    {
+      "baseline_label": 13,
+      "followup_label": 13,
+      "baseline_volume_mm3": 48.0,
+      "followup_volume_mm3": 64.0,
+      "volume_change_mm3": 16.0,
+      "volume_change_percent": 33.33333333333333,
+      "category": "growing",
+      "overlap_ratio": 0.14583333333333334,
+      "centroid_distance_mm": 2.616139145339518
+    },
+    {
+      "baseline_label": 15,
+      "followup_label": 11,
+      "baseline_volume_mm3": 35.0,
+      "followup_volume_mm3": 84.0,
+      "volume_change_mm3": 49.0,
+      "volume_change_percent": 140.0,
+      "category": "growing",
+      "overlap_ratio": 0.08571428571428572,
+      "centroid_distance_mm": 2.634532147685468
+    },
+    {
+      "baseline_label": 9,
+      "followup_label": 18,
+      "baseline_volume_mm3": 76.0,
+      "followup_volume_mm3": 40.0,
+      "volume_change_mm3": -36.0,
+      "volume_change_percent": -47.368421052631575,
+      "category": "shrinking",
+      "overlap_ratio": 0.15,
+      "centroid_distance_mm": 2.911010476528706
+    },
+    {
+      "baseline_label": 11,
+      "followup_label": 8,
+      "baseline_volume_mm3": 73.0,
+      "followup_volume_mm3": 150.0,
+      "volume_change_mm3": 77.0,
+      "volume_change_percent": 105.47945205479452,
+      "category": "growing",
+      "overlap_ratio": 0.2465753424657534,
+      "centroid_distance_mm": 3.021828283509377
+    },
+    {
+      "baseline_label": 8,
+      "followup_label": 6,
+      "baseline_volume_mm3": 109.0,
+      "followup_volume_mm3": 168.0,
+      "volume_change_mm3": 59.0,
+      "volume_change_percent": 54.12844036697248,
+      "category": "growing",
+      "overlap_ratio": 0.1834862385321101,
+      "centroid_distance_mm": 3.3713223727231285
+    },
+    {
+      "baseline_label": 7,
+      "followup_label": 10,
+      "baseline_volume_mm3": 129.0,
+      "followup_volume_mm3": 91.0,
+      "volume_change_mm3": -38.0,
+      "volume_change_percent": -29.457364341085274,
+      "category": "shrinking",
+      "overlap_ratio": 0.12087912087912088,
+      "centroid_distance_mm": 4.509690664641456
+    }
+  ],
+  "new_lesions": [
+    {
+      "label": 7,
+      "volume_mm3": 158.0,
+      "centroid": [
+        90.80379746835443,
+        143.5632911392405,
+        81.65822784810126
+      ]
+    },
+    {
+      "label": 14,
+      "volume_mm3": 63.0,
+      "centroid": [
+        62.666666666666664,
+        74.55555555555556,
+        41.0
+      ]
+    },
+    {
+      "label": 15,
+      "volume_mm3": 58.0,
+      "centroid": [
+        134.1551724137931,
+        161.20689655172413,
+        94.05172413793103
+      ]
+    },
+    {
+      "label": 17,
+      "volume_mm3": 41.0,
+      "centroid": [
+        55.0,
+        121.85365853658537,
+        53.146341463414636
+      ]
+    },
+    {
+      "label": 19,
+      "volume_mm3": 34.0,
+      "centroid": [
+        71.47058823529412,
+        154.64705882352942,
+        75.5
+      ]
+    }
+  ],
+  "resolved_lesions": []
+}

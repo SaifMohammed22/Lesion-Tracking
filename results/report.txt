@@ -1,0 +1,16 @@
+============================================================
+LESION TRACKING REPORT
+============================================================
+
+Generated: 2025-12-18T20:46:05.389303
+
+Baseline: 18 lesions, Follow-up: 12 lesions
+Matched: 9
+
+  Stable: 4
+  Growing: 1
+  Shrinking: 4
+  New: 3
+  Resolved: 9
+
+Volume change: -13.6%
