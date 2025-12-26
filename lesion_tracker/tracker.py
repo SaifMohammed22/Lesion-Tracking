@@ -8,7 +8,7 @@ import json
 import os
 from datetime import datetime
 
-from .labeler import LesionLabeler, Lesion
+from .labeler import LesionLabeler
 from .registration import Registration
 from .metrics import LesionMetrics
 from .visualization import LesionVisualizer
@@ -22,8 +22,8 @@ class LesionTracker:
         self,
         overlap_threshold: float = 0.3,
         distance_threshold_mm: float = 10.0,
-        growth_threshold: float = 0.20,
-        shrink_threshold: float = 0.20,
+        growth_threshold: float = 0.25,
+        shrink_threshold: float = 0.25,
         min_lesion_voxels: int = 3,
         connectivity: int = 26
     ):
@@ -63,8 +63,14 @@ class LesionTracker:
         stats = self.labeler.get_lesion_statistics(self.followup_lesions)
         return {'status': 'success', 'timepoint': 'followup', 'flair_shape': self.followup_flair.shape, **stats}
     
-    def _match_lesions(self) -> List[Tuple[int, int, float, float]]:
-        """Match baseline lesions to follow-up using overlap + distance."""
+    def _match_lesions(self) -> Tuple[List[Tuple[int, int, float, float]], np.ndarray, np.ndarray]:
+        """Match baseline lesions to follow-up using overlap + distance.
+
+        Returns:
+            matches: list of (baseline_idx, followup_idx, overlap, distance)
+            overlap: overlap matrix (n_baseline x n_followup)
+            distance: distance matrix (n_baseline x n_followup)
+        """
         n_bl, n_fu = len(self.baseline_lesions), len(self.followup_lesions)
         
         # Compute overlap and distance matrices
@@ -100,7 +106,7 @@ class LesionTracker:
             matches.append((i, j, overlap[i, j], distance[i, j]))
             matched_bl.add(i)
             matched_fu.add(j)
-        return matches
+        return matches, overlap, distance
     
     def track_lesions(self, image1_path: str, image2_path: str, check_registration: bool = True) -> Dict[str, Any]:
         """Perform lesion tracking between baseline and follow-up."""
@@ -108,21 +114,80 @@ class LesionTracker:
             raise ValueError("Both baseline and follow-up must be loaded first")
         
         registration_info = self.registration.check_alignment(image1_path, image2_path) if check_registration else None
-        matches = self._match_lesions()
+        matches, overlap, distance = self._match_lesions()
         
         correspondences, matched_bl_labels, matched_fu_labels = [], set(), set()
+
+        # Build overlap boolean maps to detect merges (many baseline -> one followup)
+        n_bl, n_fu = overlap.shape
+        bl_to_fus = {i: [j for j in range(n_fu) if overlap[i, j] >= self.overlap_threshold] for i in range(n_bl)}
+        fu_to_bls = {j: [i for i in range(n_bl) if overlap[i, j] >= self.overlap_threshold] for j in range(n_fu)}
+
+        # Handle matched pairs (from greedy matches)
         for bl_idx, fu_idx, ovlp, dist in matches:
             bl, fu = self.baseline_lesions[bl_idx], self.followup_lesions[fu_idx]
             matched_bl_labels.add(bl.label)
             matched_fu_labels.add(fu.label)
-            vol_change = fu.volume_mm3 - bl.volume_mm3
+
+            # Detect merges: followup lesion corresponds to multiple baseline lesions
+            if len(fu_to_bls.get(fu_idx, [])) > 1:
+                category = 'merged'
+                followup_volume = fu.volume_mm3
+            # Detect splits: baseline lesion corresponds to multiple followup lesions
+            elif len(bl_to_fus.get(bl_idx, [])) > 1:
+                category = 'split'
+                followup_volume = sum(self.followup_lesions[j].volume_mm3 for j in bl_to_fus[bl_idx])
+            else:
+                # Normal one-to-one correspondences: use thresholds for enlarged/shrinking/present
+                followup_volume = fu.volume_mm3
+                category = self.metrics.classify_lesion_change(bl.volume_mm3, followup_volume, self.growth_threshold, self.shrink_threshold)
+
+            vol_change = followup_volume - bl.volume_mm3
             vol_pct = (vol_change / bl.volume_mm3 * 100) if bl.volume_mm3 > 0 else float('inf')
-            category = self.metrics.classify_lesion_change(bl.volume_mm3, fu.volume_mm3, self.growth_threshold, self.shrink_threshold)
             correspondences.append({
                 'baseline_label': bl.label, 'followup_label': fu.label,
-                'baseline_volume_mm3': bl.volume_mm3, 'followup_volume_mm3': fu.volume_mm3,
+                'baseline_volume_mm3': bl.volume_mm3, 'followup_volume_mm3': followup_volume,
                 'volume_change_mm3': vol_change, 'volume_change_percent': vol_pct,
                 'category': category, 'overlap_ratio': ovlp, 'centroid_distance_mm': dist,
+            })
+
+        # Post-process merges: ensure all baseline lesions involved are added and assign summed volume to largest
+        for fu_idx, bl_idxs in fu_to_bls.items():
+            if len(bl_idxs) <= 1:
+                continue
+            fu = self.followup_lesions[fu_idx]
+            bl_objs = [self.baseline_lesions[i] for i in bl_idxs]
+            bl_objs_sorted = sorted(bl_objs, key=lambda x: x.volume_mm3, reverse=True)
+            largest = bl_objs_sorted[0]
+            total_baseline_vol = sum(b.volume_mm3 for b in bl_objs)
+            for b in bl_objs:
+                matched_bl_labels.add(b.label)
+                if b.label == largest.label:
+                    followup_volume = total_baseline_vol
+                else:
+                    followup_volume = 0.0
+                vol_change = followup_volume - b.volume_mm3
+                vol_pct = (vol_change / b.volume_mm3 * 100) if b.volume_mm3 > 0 else float('inf')
+                correspondences.append({
+                    'baseline_label': b.label, 'followup_label': fu.label,
+                    'baseline_volume_mm3': b.volume_mm3, 'followup_volume_mm3': followup_volume,
+                    'volume_change_mm3': vol_change, 'volume_change_percent': vol_pct,
+                    'category': 'merged', 'overlap_ratio': None, 'centroid_distance_mm': None,
+                })
+
+        # Post-process splits: baseline -> multiple followups (aggregate into one row)
+        for bl_idx, fu_idxs in bl_to_fus.items():
+            if len(fu_idxs) <= 1:
+                continue
+            bl = self.baseline_lesions[bl_idx]
+            total_followup_vol = sum(self.followup_lesions[j].volume_mm3 for j in fu_idxs)
+            vol_change = total_followup_vol - bl.volume_mm3
+            vol_pct = (vol_change / bl.volume_mm3 * 100) if bl.volume_mm3 > 0 else float('inf')
+            correspondences.append({
+                'baseline_label': bl.label, 'followup_label': ','.join(str(self.followup_lesions[j].label) for j in fu_idxs),
+                'baseline_volume_mm3': bl.volume_mm3, 'followup_volume_mm3': total_followup_vol,
+                'volume_change_mm3': vol_change, 'volume_change_percent': vol_pct,
+                'category': 'split', 'overlap_ratio': None, 'centroid_distance_mm': None,
             })
         
         new_lesions = [{'label': l.label, 'volume_mm3': l.volume_mm3, 'centroid': l.centroid} 

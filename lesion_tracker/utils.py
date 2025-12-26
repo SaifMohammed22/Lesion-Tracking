@@ -76,7 +76,8 @@ def binarize_mask(
     Returns:
         Binary mask (0 or 1)
     """
-    return (mask > threshold).astype(np.uint8)
+    binarized_mask = (mask > threshold).astype(np.uint8)
+    return binarized_mask
 
 
 def normalize_intensity(
@@ -224,6 +225,7 @@ if __name__ == "__main__":
     mask2 = "/mnt/data/MSLesSeg Dataset/train/P2/T2/P2_T2_MASK.nii.gz"
     data1, img1 = load_nifti(mask1)
     data2, img2 = load_nifti(mask2)
+    get_bounding_box(data1)
     print("Loaded NIfTI shape:", data1.shape)
     print("Loaded NIfTI shape:", data2.shape)
     print("Voxel volume (mm³):", get_voxel_volume(img1))

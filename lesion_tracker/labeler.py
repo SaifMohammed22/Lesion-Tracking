@@ -85,4 +85,17 @@ class LesionLabeler:
             'min_volume_mm3': min(volumes),
             'max_volume_mm3': max(volumes),
         }
-
+    
+if __name__ == "__main__":
+    labeler = LesionLabeler(connectivity=26, min_lesion_voxels=3)
+    mask_path = "/mnt/data/MSLesSeg Dataset/train/P1/T1/P1_T1_MASK.nii.gz"
+    output_path = "./labeled_lesions.nii.gz"
+    
+    labeled_mask, lesions = labeler.label_lesions_from_file(mask_path, output_path)
+    stats = labeler.get_lesion_statistics(lesions)
+    
+    print(f"Labeled {stats['num_lesions']} lesions")
+    print(f"Total volume: {stats['total_volume_mm3']:.2f} mm³")
+    print(f"Mean volume: {stats['mean_volume_mm3']:.2f} mm³")
+    for lesion in lesions:
+        print(lesion)

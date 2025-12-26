@@ -1,8 +1,5 @@
 """
 Example usage of the lesion tracking tool.
-
-This script demonstrates how to use the LesionTracker class
-to track lesions between baseline and follow-up scans.
 """
 
 import os
@@ -17,18 +14,18 @@ def example_full_tracking():
     between baseline and follow-up scans.
     """
     # Define paths (replace with your actual file paths)
-    baseline_flair = "/mnt/data/MSLesSeg Dataset/train/P2/T1/P2_T1_FLAIR.nii.gz"
-    baseline_mask = "/mnt/data/MSLesSeg Dataset/train/P2/T1/P2_T1_MASK.nii.gz"
-    followup_flair = "/mnt/data/MSLesSeg Dataset/train/P2/T2/P2_T2_FLAIR.nii.gz"
-    followup_mask = "/mnt/data/MSLesSeg Dataset/train/P2/T2/P2_T2_MASK.nii.gz"
+    baseline_flair = "/mnt/data/MSLesSeg Dataset/train/P1/T1/P1_T1_FLAIR.nii.gz"
+    baseline_mask = "/mnt/data/MSLesSeg Dataset/train/P1/T1/P1_T1_MASK.nii.gz"
+    followup_flair = "/mnt/data/MSLesSeg Dataset/train/P1/T2/P1_T2_FLAIR.nii.gz"
+    followup_mask = "/mnt/data/MSLesSeg Dataset/train/P1/T2/P1_T2_MASK.nii.gz"
     output_dir = "./tracking_results"
     
     # Initialize the tracker with custom parameters
     tracker = LesionTracker(
         overlap_threshold=0.3,      # 30% overlap to match lesions
         distance_threshold_mm=10.0,  # Max 10mm centroid distance
-        growth_threshold=0.25,       # 20% volume increase = growing
-        shrink_threshold=0.25,       # 20% volume decrease = shrinking
+        growth_threshold=0.25,       # 25% volume increase = growing
+        shrink_threshold=0.25,       # 25% volume decrease = shrinking
         min_lesion_voxels=3          # Minimum 3 voxels per lesion
     )
     
