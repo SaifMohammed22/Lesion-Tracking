@@ -204,6 +204,9 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Unneeded Files
+tracking_results/
+
 # PyPI configuration file
 .pypirc
 
