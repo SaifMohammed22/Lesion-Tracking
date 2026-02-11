@@ -1,21 +1,50 @@
 """
-MRI Lesion Tracking Tool
+Lesion Tracker - Simple MS Lesion Tracking Between Timepoints
 
-A comprehensive tool for tracking and labeling lesions in baseline and follow-up MRI scans.
-Designed for the MSLesSeg dataset and similar MS lesion datasets.
+Track lesions between baseline and follow-up MRI scans to detect:
+- New lesions
+- Disappeared lesions
+- Enlarged lesions
+- Shrunk lesions
+- Stable lesions
 """
 
-from .tracker import LesionTracker
-from .labeler import LesionLabeler
-from .metrics import LesionMetrics
-from .visualization import LesionVisualizer
+from .core import (
+    # Main functions
+    run_tracking,
+    track_mslesseg,
+    # Core functions (if needed separately)
+    track_lesions,
+    label_lesions,
+    # Registration
+    register_to_baseline,
+    apply_transform,
+)
 
-__version__ = "0.1.0"
-__author__ = "Lesion Tracking Team"
+# I/O utilities
+from .utils import load_nifti, save_nifti
+
+# Optional visualization
+try:
+    from .visualization import visualize_tracking
+except ImportError:
+    visualize_tracking = None
+
+__version__ = "2.0.0"
 
 __all__ = [
-    "LesionTracker",
-    "LesionLabeler",
-    "LesionMetrics",
-    "LesionVisualizer",
+    # Main API
+    "run_tracking",
+    "track_mslesseg",
+    # Core functions
+    "track_lesions",
+    "label_lesions",
+    # I/O
+    "load_nifti",
+    "save_nifti",
+    # Registration
+    "register_to_baseline",
+    "apply_transform",
+    # Visualization
+    "visualize_tracking",
 ]

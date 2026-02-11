@@ -1,182 +1,156 @@
-# MRI Lesion Tracking Tool
+# LST Longitudinal Pipeline - Python Implementation
 
-A comprehensive tool for tracking and labeling lesions in baseline and follow-up MRI scans, specifically designed for the MSLesSeg dataset.
+Python implementation of the algorithm from:
+
+**"Automated segmentation of changes in FLAIR-hyperintense white matter lesions in multiple sclerosis on serial magnetic resonance imaging"**
+
+## Overview
+
+This tool detects new, enlarging, shrinking, and disappearing MS lesions using voxel-wise statistical testing within a joint lesion map. It compares FLAIR intensity changes against a null distribution estimated from normal-appearing white matter (NAWM).
 
 ## Features
 
-- **Lesion Labeling**: Automatically label individual lesions using connected component analysis
-- **Lesion Tracking**: Track lesions across baseline and follow-up scans
-- **Change Detection**: Identify new, resolved, growing, and shrinking lesions
-- **Visualization**: Generate visual reports comparing lesion changes
-- **Metrics**: Calculate volumetric changes and statistics
+- **Tissue Segmentation**: Automatic WM/GM segmentation from T1 images
+- **Lesion Filling**: Fill lesions with NAWM intensities for better registration
+- **Registration**: ANTs-based registration of follow-up to baseline
+- **Bias Correction**: N4 bias field correction
+- **Intensity Normalization**: GM-referenced intensity normalization
+- **Statistical Testing**: NAWM-based null distribution for change detection
 
 ## Installation
 
 ```bash
 conda env create --file environment.yml
+conda activate lesion_tracking
 ```
 
-## Usage
-
-### Basic Usage
+## Quick Start
 
 ```python
-from lesion_tracker import LesionTracker
+from lesion_tracker import run_lst_longitudinal
 
-# Initialize tracker
-tracker = LesionTracker()
-
-# Load scans and masks
-tracker.load_baseline(
-    flair_path="path/to/baseline_flair.nii.gz",
-    mask_path="path/to/baseline_mask.nii.gz"
+results = run_lst_longitudinal(
+    baseline_dir="MSLesSeg Dataset/train/P1/T1",
+    followup_dir="MSLesSeg Dataset/train/P1/T2",
+    output_dir="./output/P1_T1_T2",
+    patient_id="P1",
+    baseline_tp="T1",
+    followup_tp="T2"
 )
 
-tracker.load_followup(
-    flair_path="path/to/followup_flair.nii.gz",
-    mask_path="path/to/followup_mask.nii.gz"
+print(f"New lesions: {results['statistics']['num_new_lesions']}")
+print(f"Disappeared: {results['statistics']['num_disappeared_lesions']}")
+```
+
+## Detailed Usage
+
+```python
+from lesion_tracker import LSTLongitudinal
+
+pipeline = LSTLongitudinal(
+    p_threshold=0.05,                    # Statistical significance threshold
+    min_lesion_size=3,                   # Minimum lesion size in voxels
+    registration_type='Affine',          # 'Rigid', 'Affine', or 'SyN'
+    apply_bias_correction=True,          # Apply N4 bias correction
+    tissue_segmentation_method='kmeans'  # 'otsu', 'kmeans', or 'sitk'
 )
 
-# Perform tracking
-results = tracker.track_lesions()
-
-# Generate report
-tracker.generate_report(output_dir="./results")
+results = pipeline.run_pipeline(
+    t1_baseline_path="path/to/baseline_t1.nii.gz",
+    flair_baseline_path="path/to/baseline_flair.nii.gz",
+    lesions_baseline_path="path/to/baseline_lesions.nii.gz",
+    t1_followup_path="path/to/followup_t1.nii.gz",
+    flair_followup_path="path/to/followup_flair.nii.gz",
+    lesions_followup_path="path/to/followup_lesions.nii.gz",
+    output_dir="./output"
+)
 ```
 
-### Command Line Interface
+## Algorithm Workflow
 
-```bash
-# Track lesions between baseline and follow-up
-python -m lesion_tracker track \
-    --baseline-flair baseline_flair.nii.gz \
-    --baseline-mask baseline_mask.nii.gz \
-    --followup-flair followup_flair.nii.gz \
-    --followup-mask followup_mask.nii.gz \
-    --output ./results
+```
+Input: T1_baseline, FLAIR_baseline, T1_followup, FLAIR_followup, 
+       Lesions_baseline, Lesions_followup
 
-# Label lesions in a single scan
-python -m lesion_tracker label \
-    --flair scan.nii.gz \
-    --mask mask.nii.gz \
-    --output labeled_lesions.nii.gz
+Step 1: Tissue Segmentation
+        Extract WM, GM from T1 baseline using k-means/Otsu
+
+Step 2: Lesion Filling
+        Fill lesions in T1 images with local NAWM intensities
+
+Step 3: Registration
+        Register follow-up to baseline (Affine/Rigid/SyN)
+
+Step 4: Joint Lesion Map
+        Joint_lesions = Lesions_baseline OR Lesions_followup_registered
+
+Step 5: NAWM Extraction
+        NAWM = WM AND NOT Joint_lesions
+
+Step 6: Preprocessing
+        - N4 bias field correction on FLAIR images
+        - GM-referenced intensity normalization
+
+Step 7: Intensity Difference
+        FLAIR_diff = FLAIR_followup - FLAIR_baseline
+
+Step 8: Statistical Testing
+        For each voxel in Joint_lesions:
+            z_score = (diff - NAWM_mean) / NAWM_std
+            p_value = 2 * (1 - Φ(|z_score|))
+            
+            if p_value < threshold AND diff > 0:
+                → New/expanding lesion
+            elif p_value < threshold AND diff < 0:
+                → Shrinking/disappearing lesion
+            else:
+                → Stable lesion
+
+Output: new_lesions.nii.gz, disappeared_lesions.nii.gz, 
+        stable_lesions.nii.gz, statistics.json
 ```
 
-## Work flow
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         LESION TRACKING PIPELINE                            │
-└─────────────────────────────────────────────────────────────────────────────┘
+## Output Files
 
-     ┌──────────────┐         ┌──────────────┐
-     │  Baseline    │         │  Follow-up   │
-     │  FLAIR MRI   │         │  FLAIR MRI   │
-     └──────┬───────┘         └──────┬───────┘
-            │                        │
-            ▼                        ▼
-     ┌──────────────┐         ┌──────────────┐
-     │  Baseline    │         │  Follow-up   │
-     │  Lesion Mask │         │  Lesion Mask │
-     │  (from nnU-Net│         │  (from nnU-Net│
-     │   or manual) │         │   or manual) │
-     └──────┬───────┘         └──────┬───────┘
-            │                        │
-            └───────────┬────────────┘
-                        ▼
-              ┌─────────────────┐
-              │  REGISTRATION   │  ← Align scans if needed
-              │ (registration.py)│
-              └────────┬────────┘
-                       ▼
-              ┌─────────────────┐
-              │ LESION LABELING │  ← Connected component analysis
-              │  (labeler.py)   │    Identify individual lesions
-              └────────┬────────┘
-                       ▼
-              ┌─────────────────┐
-              │ LESION MATCHING │  ← Match lesions between timepoints
-              │  (tracker.py)   │    Using overlap + distance
-              └────────┬────────┘
-                       ▼
-              ┌─────────────────┐
-              │ CLASSIFICATION  │  ← Categorize each lesion
-              │  (tracker.py)   │
-              └────────┬────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-   ┌─────────┐   ┌──────────┐   ┌──────────┐
-   │  NEW    │   │ MATCHED  │   │ RESOLVED │
-   │ lesions │   │ lesions  │   │ lesions  │
-   └─────────┘   └────┬─────┘   └──────────┘
-                      │
-         ┌────────────┼────────────┐
-         ▼            ▼            ▼
-    ┌─────────┐  ┌─────────┐  ┌──────────┐
-    │ GROWING │  │ STABLE  │  │SHRINKING │
-    │  >20%   │  │  ±20%   │  │  >20%    │
-    └─────────┘  └─────────┘  └──────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │    OUTPUTS      │
-              ├─────────────────┤
-              │ • tracking.json │
-              │ • summary.csv   │
-              │ • report.txt    │
-              │ • visualizations│
-              └─────────────────┘
-```
-
-## Output
-
-The tool generates:
-- Labeled lesion masks for baseline and follow-up
-- Tracking results with lesion correspondences
-- Volumetric statistics (CSV format)
-- Visual comparison images (PNG format)
-- Detailed JSON report
-
-## Lesion Categories
-
-After tracking, lesions are categorized as:
-- **Stable**: Lesions present in both scans with minimal size change
-- **Growing**: Lesions that increased in volume (>20% by default)
-- **Shrinking**: Lesions that decreased in volume (>20% by default)
-- **New**: Lesions only present in follow-up
-- **Resolved**: Lesions only present in baseline
+| File | Description |
+|------|-------------|
+| `new_lesions.nii.gz` | Mask of new/expanding lesions |
+| `disappeared_lesions.nii.gz` | Mask of shrinking/disappearing lesions |
+| `stable_lesions.nii.gz` | Mask of stable lesions |
+| `joint_lesions.nii.gz` | Union of baseline and follow-up lesions |
+| `nawm_mask.nii.gz` | Normal-appearing white matter mask |
+| `wm_mask.nii.gz` | White matter segmentation |
+| `flair_difference.nii.gz` | FLAIR intensity difference map |
+| `statistics.json` | Summary statistics |
 
 ## Project Structure
 
 ```
-lesion_tracking/
-├── lesion_tracker/
-│   ├── __init__.py
-│   ├── tracker.py          # Main tracking logic
-│   ├── labeler.py          # Lesion labeling utilities
-│   ├── registration.py     # Image registration utilities
-│   ├── metrics.py          # Volumetric metrics
-│   ├── visualization.py    # Visualization tools
-│   └── utils.py            # Helper functions
-├── config/
-│   └── default_config.yaml # Default configuration
-├── tests/
-│   └── test.py     # test file
-├── examples/
-│   └── example_usage.py    # Example scripts
-├── environment.yml
-├──pyproject.toml
-└── README.md
+lesion_tracker/
+├── __init__.py           # Package exports
+├── change_detection.py   # Main LST longitudinal pipeline
+├── segmentation.py       # Tissue segmentation (WM/GM)
+├── preprocessing.py      # Lesion filling, bias correction, normalization
+├── registration.py       # ANTs-based registration
+└── utils.py              # I/O utilities
 ```
 
-## Configuration
+## Requirements
 
-Edit `config/default_config.yaml` to customize:
-- Overlap threshold for lesion matching
-- Volume change thresholds
-- Registration parameters
-- Visualization settings
+- Python >= 3.8
+- nibabel
+- numpy
+- scipy
+- scikit-learn
+- SimpleITK
+- ANTsPy
 
-## License
+## Citation
 
-MIT License
+If you use this tool, please cite the original paper:
+
+```
+Schmidt P, et al. "Automated segmentation of changes in FLAIR-hyperintense 
+white matter lesions in multiple sclerosis on serial magnetic resonance imaging."
+NeuroImage: Clinical. 2019.
+```

@@ -1,81 +1,195 @@
 """
-Example usage of the lesion tracking tool.
+Example usage of the simplified Lesion Tracker.
+
+Track MS lesions between baseline and follow-up MRI scans.
 """
 
 import os
-from lesion_tracker import LesionTracker, LesionLabeler, LesionVisualizer
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from lesion_tracker import run_tracking, track_mslesseg, visualize_tracking
 
 
-def example_full_tracking():
+def example_basic():
     """
-    Example: Full lesion tracking pipeline.
-    
-    This demonstrates the complete workflow for tracking lesions
-    between baseline and follow-up scans.
+    Basic example - track lesions with explicit file paths.
     """
-    # Define paths (replace with your actual file paths)
-    baseline_flair = "/mnt/data/MSLesSeg Dataset/train/P1/T1/P1_T1_FLAIR.nii.gz"
-    baseline_mask = "/mnt/data/MSLesSeg Dataset/train/P1/T1/P1_T1_MASK.nii.gz"
-    followup_flair = "/mnt/data/MSLesSeg Dataset/train/P1/T2/P1_T2_FLAIR.nii.gz"
-    followup_mask = "/mnt/data/MSLesSeg Dataset/train/P1/T2/P1_T2_MASK.nii.gz"
-    output_dir = "./tracking_results"
-    
-    # Initialize the tracker with custom parameters
-    tracker = LesionTracker(
-        overlap_threshold=0.3,      # 30% overlap to match lesions
-        distance_threshold_mm=10.0,  # Max 10mm centroid distance
-        growth_threshold=0.25,       # 25% volume increase = growing
-        shrink_threshold=0.25,       # 25% volume decrease = shrinking
-        min_lesion_voxels=3          # Minimum 3 voxels per lesion
+    print("=" * 60)
+    print("Lesion Tracking - Basic Example")
+    print("=" * 60)
+
+    results = run_tracking(
+        baseline_flair="MSLesSeg Dataset/train/P1/T1/P1_T1_FLAIR.nii.gz",
+        baseline_mask="MSLesSeg Dataset/train/P1/T1/P1_T1_MASK.nii.gz",
+        followup_flair="MSLesSeg Dataset/train/P1/T2/P1_T2_FLAIR.nii.gz",
+        followup_mask="MSLesSeg Dataset/train/P1/T2/P1_T2_MASK.nii.gz",
+        output_dir="./output/P1_T1_T2",
+        registration_type="Affine",
+        min_lesion_size=3,
+        change_threshold=0.2,  # 20% volume change = enlarged/shrunk
     )
-    
-    # Load baseline scan
-    print("Loading baseline...")
-    baseline_info = tracker.load_baseline(baseline_flair, baseline_mask)
-    print(f"Found {baseline_info['num_lesions']} baseline lesions")
-    print(f"Total volume: {baseline_info['total_volume_mm3']:.2f} mm³")
-    
-    # Load follow-up scan
-    print("\nLoading follow-up...")
-    followup_info = tracker.load_followup(followup_flair, followup_mask)
-    print(f"Found {followup_info['num_lesions']} follow-up lesions")
-    print(f"Total volume: {followup_info['total_volume_mm3']:.2f} mm³")
-    
-    # Perform tracking
-    print("\nTracking lesions...")
-    results = tracker.track_lesions(baseline_flair, followup_flair)
-    
-    # Print results
-    print("\n" + "="*50)
-    print("TRACKING RESULTS")
-    print("="*50)
-    print(f"Matched lesions: {len(results['correspondences'])}")
-    print(f"New lesions: {len(results['new_lesions'])}")
-    print(f"Resolved lesions: {len(results['resolved_lesions'])}")
-    
-    # Print category breakdown
-    print("\nLesion categories:")
-    categories = {}
-    for corr in results['correspondences']:
-        cat = corr['category']
-        categories[cat] = categories.get(cat, 0) + 1
-    
-    for cat, count in sorted(categories.items()):
-        print(f"  {cat.capitalize()}: {count}")
-    
-    # Generate report
-    print(f"\nGenerating report in: {output_dir}")
-    output_files = tracker.generate_report(output_dir)
-    
-    print("\nGenerated files:")
-    for key, path in output_files.items():
-        if isinstance(path, list):
-            for p in path:
-                print(f"  - {os.path.basename(p)}")
-        else:
-            print(f"  - {os.path.basename(path)}")
+
+    # Print detailed results
+    print("\nDetailed results:")
+    print(f"  Stable lesions: {results['stable']}")
+    print(f"  Enlarged lesions: {results['enlarged']}")
+    print(f"  Shrunk lesions: {results['shrunk']}")
+    print(f"  Disappeared lesions: {results['disappeared']}")
+    print(f"  New lesions: {results['new']}")
+
+    return results
+
+
+def example_mslesseg():
+    """
+    Example using MSLesSeg dataset format (convenience function).
+    """
+    print("=" * 60)
+    print("Lesion Tracking - MSLesSeg Dataset")
+    print("=" * 60)
+
+    results = track_mslesseg(
+        baseline_dir="MSLesSeg Dataset/train/P1/T1",
+        followup_dir="MSLesSeg Dataset/train/P1/T2",
+        output_dir="./output/P1_T1_T2",
+        patient_id="P1",
+        baseline_tp="T1",
+        followup_tp="T2",
+    )
+
+    return results
+
+
+def example_with_visualization():
+    """
+    Track lesions and create visualization.
+    """
+    print("=" * 60)
+    print("Lesion Tracking - With Visualization")
+    print("=" * 60)
+
+    output_dir = "./output/P1_T1_T2"
+
+    # Run tracking
+    results = track_mslesseg(
+        baseline_dir="MSLesSeg Dataset/train/P1/T1",
+        followup_dir="MSLesSeg Dataset/train/P1/T2",
+        output_dir=output_dir,
+        patient_id="P1",
+        baseline_tp="T1",
+        followup_tp="T2",
+    )
+
+    # Create visualization
+    if visualize_tracking is not None:
+        visualize_tracking(
+            flair_baseline_path="MSLesSeg Dataset/train/P1/T1/P1_T1_FLAIR.nii.gz",
+            flair_followup_path="MSLesSeg Dataset/train/P1/T2/P1_T2_FLAIR.nii.gz",
+            baseline_labeled_path=f"{output_dir}/baseline_lesions_labeled.nii.gz",
+            followup_labeled_path=f"{output_dir}/followup_lesions_labeled.nii.gz",
+            save_path=f"{output_dir}/tracking_visualization.png",
+            show=True,
+        )
+    else:
+        print("Visualization requires matplotlib")
+
+    return results
+
+
+def process_all_patients():
+    """
+    Process all patients with multiple timepoints.
+    """
+    import glob
+
+    dataset_root = "MSLesSeg Dataset/train"
+    output_root = "./output/all_patients"
+    os.makedirs(output_root, exist_ok=True)
+
+    patient_dirs = sorted(glob.glob(f"{dataset_root}/P*"))
+    results_summary = []
+
+    for patient_dir in patient_dirs:
+        patient_id = os.path.basename(patient_dir)
+        timepoints = sorted(
+            [
+                d
+                for d in os.listdir(patient_dir)
+                if os.path.isdir(os.path.join(patient_dir, d))
+            ]
+        )
+
+        if len(timepoints) < 2:
+            print(f"Skipping {patient_id}: only {len(timepoints)} timepoint(s)")
+            continue
+
+        # Process consecutive pairs
+        for i in range(len(timepoints) - 1):
+            baseline_tp = timepoints[i]
+            followup_tp = timepoints[i + 1]
+
+            print(f"\n{'=' * 50}")
+            print(f"{patient_id}: {baseline_tp} -> {followup_tp}")
+            print("=" * 50)
+
+            try:
+                results = track_mslesseg(
+                    baseline_dir=f"{patient_dir}/{baseline_tp}",
+                    followup_dir=f"{patient_dir}/{followup_tp}",
+                    output_dir=f"{output_root}/{patient_id}_{baseline_tp}_{followup_tp}",
+                    patient_id=patient_id,
+                    baseline_tp=baseline_tp,
+                    followup_tp=followup_tp,
+                )
+
+                s = results["summary"]
+                results_summary.append(
+                    {
+                        "patient": patient_id,
+                        "baseline": baseline_tp,
+                        "followup": followup_tp,
+                        "new": s["num_new"],
+                        "disappeared": s["num_disappeared"],
+                        "stable": s["num_stable"],
+                    }
+                )
+            except Exception as e:
+                print(f"  Error: {e}")
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
+    for r in results_summary:
+        print(
+            f"{r['patient']} ({r['baseline']}->{r['followup']}): "
+            f"New={r['new']}, Disappeared={r['disappeared']}, Stable={r['stable']}"
+        )
+
+    return results_summary
 
 
 if __name__ == "__main__":
-    # Run the example you want to test
-    example_full_tracking()
+    print("\nLesion Tracker Examples")
+    print("-" * 40)
+    print("1. Basic example")
+    print("2. MSLesSeg format")
+    print("3. With visualization")
+    print("4. Process all patients")
+
+    choice = input("\nChoice (1-4): ").strip()
+
+    if choice == "1":
+        example_basic()
+    elif choice == "2":
+        example_mslesseg()
+    elif choice == "3":
+        example_with_visualization()
+    elif choice == "4":
+        process_all_patients()
+    else:
+        print("Running basic example...")
+        example_basic()
