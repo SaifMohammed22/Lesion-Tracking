@@ -2,8 +2,19 @@
 Lesion Tracking Visualization
 
 Output: PNG image showing lesion tracking between baseline and follow-up.
-- Left column: Baseline with lesion outlines and IDs
-- Right column: Follow-up with colored lesions (new=red, stable=yellow, disappeared=green)
+
+Layout (2 rows per slice):
+- Top row: Original FLAIR images (baseline and follow-up) for reference
+- Bottom row: Labeled results with color-coded lesions by status
+
+Status Color Scheme:
+- Yellow: Present (stable, ±25% volume)
+- Orange: Enlarged (>+25% volume)
+- Light Blue: Shrinking (>-25% volume)
+- Green: Absent (disappeared)
+- Purple: Merged
+- Cyan: Split
+- Red: New
 
 Supports single slice or multi-slice grid view.
 """
@@ -12,23 +23,35 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from scipy import ndimage
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
-from utils import load_nifti
+try:
+    from .utils import load_nifti
+except ImportError:
+    from utils import load_nifti
 
-# Color scheme
+
+# Color scheme for each status
 COLORS = {
+    "present": (0.95, 0.77, 0.06),  # Yellow
+    "enlarged": (1.0, 0.55, 0.0),  # Orange
+    "shrinking": (0.53, 0.81, 0.92),  # Light Blue
+    "absent": (0.18, 0.80, 0.44),  # Green
+    "merged": (0.58, 0.40, 0.74),  # Purple
+    "split": (0.0, 0.75, 0.75),  # Cyan/Teal
     "new": (0.91, 0.30, 0.24),  # Red
-    "stable": (0.95, 0.77, 0.06),  # Yellow
-    "disappeared": (0.18, 0.80, 0.44),  # Green
+    "outline": "cyan",  # For baseline outlines
 }
 
 
 def visualize_tracking(
     flair_baseline_path: str,
     flair_followup_path: str,
-    baseline_labeled_path: str,
-    followup_labeled_path: str,
+    baseline_labeled: Optional[np.ndarray] = None,
+    followup_labeled: Optional[np.ndarray] = None,
+    lesions: Optional[List[Dict[str, Any]]] = None,
+    baseline_labeled_path: Optional[str] = None,
+    followup_labeled_path: Optional[str] = None,
     slice_idx: Optional[int] = None,
     num_slices: int = 1,
     axis: int = 2,
@@ -39,12 +62,19 @@ def visualize_tracking(
     """
     Create lesion tracking visualization and save as PNG.
 
+    Layout:
+    - Top row: Original FLAIR images (baseline | follow-up) for visual comparison
+    - Bottom row: Tracking results with color-coded lesions by status
+
     Args:
         flair_baseline_path: Path to baseline FLAIR
         flair_followup_path: Path to follow-up FLAIR (registered)
-        baseline_labeled_path: Path to labeled baseline lesions
-        followup_labeled_path: Path to labeled follow-up lesions
-        slice_idx: Slice to display (auto-selected if None, ignored if num_slices > 1)
+        baseline_labeled: Numpy array of labeled baseline lesions (preferred)
+        followup_labeled: Numpy array of labeled follow-up lesions (preferred)
+        lesions: List of lesion dicts with 'id' and 'status' keys (from track_lesions)
+        baseline_labeled_path: Path to labeled baseline lesions (fallback)
+        followup_labeled_path: Path to labeled follow-up lesions (fallback)
+        slice_idx: Slice to display (auto-selected if None)
         num_slices: Number of slices to show (1 = single best, >1 = grid)
         axis: Axis for slicing (0=sagittal, 1=coronal, 2=axial)
         save_path: Path to save figure (e.g., "output.png")
@@ -54,25 +84,52 @@ def visualize_tracking(
     Returns:
         matplotlib Figure
     """
-    # Load data
+    # Load FLAIR data
     flair_bl, _ = load_nifti(flair_baseline_path)
     flair_fu, _ = load_nifti(flair_followup_path)
-    labels_bl, _ = load_nifti(baseline_labeled_path)
-    labels_fu, _ = load_nifti(followup_labeled_path)
+
+    # Use provided arrays or load from paths
+    if baseline_labeled is not None:
+        labels_bl = baseline_labeled
+    elif baseline_labeled_path is not None:
+        labels_bl, _ = load_nifti(baseline_labeled_path)
+    else:
+        raise ValueError(
+            "Must provide either baseline_labeled array or baseline_labeled_path"
+        )
+
+    if followup_labeled is not None:
+        labels_fu = followup_labeled
+    elif followup_labeled_path is not None:
+        labels_fu, _ = load_nifti(followup_labeled_path)
+    else:
+        raise ValueError(
+            "Must provide either followup_labeled array or followup_labeled_path"
+        )
 
     labels_bl = labels_bl.astype(np.int16)
     labels_fu = labels_fu.astype(np.int16)
 
     # Normalize FLAIR for display
-    flair_bl = _normalize(flair_bl)
-    flair_fu = _normalize(flair_fu)
+    flair_bl_norm = _normalize(flair_bl)
+    flair_fu_norm = _normalize(flair_fu)
 
-    # Get lesion categories
-    bl_ids = set(np.unique(labels_bl)) - {0}
-    fu_ids = set(np.unique(labels_fu)) - {0}
-    stable = bl_ids & fu_ids
-    disappeared = bl_ids - fu_ids
-    new = fu_ids - bl_ids
+    # Build status lookup from lesions list
+    status_map = {}
+    if lesions:
+        for lesion in lesions:
+            status_map[lesion["id"]] = lesion["status"].lower()
+
+    # If no lesions list provided, infer from labels (backward compatibility)
+    if not status_map:
+        bl_ids = set(np.unique(labels_bl)) - {0}
+        fu_ids = set(np.unique(labels_fu)) - {0}
+        for lid in bl_ids & fu_ids:
+            status_map[lid] = "present"
+        for lid in bl_ids - fu_ids:
+            status_map[lid] = "absent"
+        for lid in fu_ids - bl_ids:
+            status_map[lid] = "new"
 
     # Determine slices to show
     if num_slices == 1:
@@ -82,40 +139,44 @@ def visualize_tracking(
     else:
         slice_indices = _find_best_slices(labels_bl, labels_fu, axis, num_slices)
 
-    # Create figure
-    n_rows = len(slice_indices)
+    # Create figure: 2 columns (baseline, follow-up) x (2 rows per slice)
+    n_slices = len(slice_indices)
+    n_rows = n_slices * 2  # 2 rows per slice (original + labeled)
+
     if figsize is None:
-        figsize = (10, 4 * n_rows)
+        figsize = (10, 4 * n_slices)
 
     fig, axes = plt.subplots(n_rows, 2, figsize=figsize, facecolor="black")
 
-    # Handle single row case
-    if n_rows == 1:
-        axes = axes.reshape(1, -1)
+    # Handle single slice case (2 rows)
+    if n_rows == 2:
+        axes = axes.reshape(2, 2)
 
     for ax_row in axes:
         for ax in ax_row:
             ax.set_facecolor("black")
 
-    # Draw each slice
-    for row, sidx in enumerate(slice_indices):
+    # Draw each slice (2 rows per slice)
+    for slice_num, sidx in enumerate(slice_indices):
+        row_original = slice_num * 2
+        row_labeled = slice_num * 2 + 1
+
         # Extract slices
-        sl_flair_bl = np.rot90(_get_slice(flair_bl, sidx, axis))
-        sl_flair_fu = np.rot90(_get_slice(flair_fu, sidx, axis))
+        sl_flair_bl = np.rot90(_get_slice(flair_bl_norm, sidx, axis))
+        sl_flair_fu = np.rot90(_get_slice(flair_fu_norm, sidx, axis))
         sl_labels_bl = np.rot90(_get_slice(labels_bl, sidx, axis))
         sl_labels_fu = np.rot90(_get_slice(labels_fu, sidx, axis))
 
-        # Left: Baseline with cyan outlines
-        axes[row, 0].imshow(sl_flair_bl, cmap="gray", vmin=0, vmax=1)
-        _draw_lesions(axes[row, 0], sl_labels_bl, color="cyan")
-        if row == 0:
-            axes[row, 0].set_title(
-                "Baseline", fontsize=14, color="white", fontweight="bold"
+        # ==================== TOP ROW: Original FLAIR images ====================
+        axes[row_original, 0].imshow(sl_flair_bl, cmap="gray", vmin=0, vmax=1)
+        if slice_num == 0:
+            axes[row_original, 0].set_title(
+                "Baseline (Original)", fontsize=14, color="white", fontweight="bold"
             )
-        axes[row, 0].axis("off")
+        axes[row_original, 0].axis("off")
 
-        # Add slice number on the left
-        axes[row, 0].text(
+        # Add slice number
+        axes[row_original, 0].text(
             5,
             15,
             f"Slice {sidx}",
@@ -125,25 +186,49 @@ def visualize_tracking(
             va="top",
         )
 
-        # Right: Follow-up with colored lesions
-        axes[row, 1].imshow(sl_flair_fu, cmap="gray", vmin=0, vmax=1)
-        _draw_colored_lesions(
-            axes[row, 1], sl_labels_bl, sl_labels_fu, stable, disappeared, new
-        )
-        if row == 0:
-            axes[row, 1].set_title(
-                "Follow-up", fontsize=14, color="white", fontweight="bold"
+        axes[row_original, 1].imshow(sl_flair_fu, cmap="gray", vmin=0, vmax=1)
+        if slice_num == 0:
+            axes[row_original, 1].set_title(
+                "Follow-up (Original)", fontsize=14, color="white", fontweight="bold"
             )
-        axes[row, 1].axis("off")
+        axes[row_original, 1].axis("off")
 
-    # Legend
+        # ==================== BOTTOM ROW: Labeled tracking results ====================
+        # Left: Baseline with lesion outlines colored by status
+        axes[row_labeled, 0].imshow(sl_flair_bl, cmap="gray", vmin=0, vmax=1)
+        _draw_baseline_lesions(axes[row_labeled, 0], sl_labels_bl, status_map)
+        if slice_num == 0:
+            axes[row_labeled, 0].set_title(
+                "Baseline (Labeled)", fontsize=14, color="white", fontweight="bold"
+            )
+        axes[row_labeled, 0].axis("off")
+
+        # Right: Follow-up with color-coded lesions
+        axes[row_labeled, 1].imshow(sl_flair_fu, cmap="gray", vmin=0, vmax=1)
+        _draw_followup_lesions(
+            axes[row_labeled, 1], sl_labels_bl, sl_labels_fu, status_map
+        )
+        if slice_num == 0:
+            axes[row_labeled, 1].set_title(
+                "Follow-up (Tracking Results)",
+                fontsize=14,
+                color="white",
+                fontweight="bold",
+            )
+        axes[row_labeled, 1].axis("off")
+
+    # Legend with all statuses
     legend_elements = [
-        Patch(facecolor=COLORS["stable"], edgecolor="white", label="Stable"),
+        Patch(facecolor=COLORS["present"], edgecolor="white", label="Present"),
+        Patch(facecolor=COLORS["enlarged"], edgecolor="white", label="Enlarged"),
+        Patch(facecolor=COLORS["shrinking"], edgecolor="white", label="Shrinking"),
+        Patch(facecolor=COLORS["absent"], edgecolor="white", label="Absent"),
+        Patch(facecolor=COLORS["merged"], edgecolor="white", label="Merged"),
+        Patch(facecolor=COLORS["split"], edgecolor="white", label="Split"),
         Patch(facecolor=COLORS["new"], edgecolor="white", label="New"),
-        Patch(facecolor=COLORS["disappeared"], edgecolor="white", label="Disappeared"),
     ]
     legend = fig.legend(
-        handles=legend_elements, loc="lower center", ncol=3, fontsize=11, frameon=False
+        handles=legend_elements, loc="lower center", ncol=7, fontsize=9, frameon=False
     )
     for text in legend.get_texts():
         text.set_color("white")
@@ -162,73 +247,123 @@ def visualize_tracking(
     return fig
 
 
-def _draw_lesions(ax, labels, color="cyan"):
-    """Draw lesion outlines with IDs."""
-    for lid in np.unique(labels):
+def _draw_baseline_lesions(ax, labels_bl, status_map: Dict[int, str]):
+    """Draw baseline lesions with outlines colored by status."""
+    for lid in np.unique(labels_bl):
         if lid == 0:
             continue
-        mask = labels == lid
+        mask = labels_bl == lid
         if not np.any(mask):
             continue
-        ax.contour(mask, levels=[0.5], colors=[color], linewidths=1.5)
+
+        status = status_map.get(lid, "present")
+        color = COLORS.get(status, COLORS["outline"])
+
+        # Draw outline
+        ax.contour(mask, levels=[0.5], colors=[color], linewidths=1.0)
+
+        # Draw ID label
         cy, cx = ndimage.center_of_mass(mask)
         ax.text(
             cx,
             cy,
             str(lid),
-            fontsize=9,
+            fontsize=6,
             fontweight="bold",
             color="white",
             ha="center",
             va="center",
-            bbox=dict(boxstyle="circle,pad=0.2", facecolor=color, edgecolor="white"),
+            bbox=dict(
+                boxstyle="circle,pad=0.1",
+                facecolor=color,
+                edgecolor="white",
+                linewidth=0.5,
+            ),
         )
 
 
-def _draw_colored_lesions(ax, labels_bl, labels_fu, stable, disappeared, new):
-    """Draw lesions colored by category."""
-    # Stable (yellow)
-    for lid in stable:
-        mask = labels_fu == lid
-        if np.any(mask):
-            _draw_single_lesion(ax, mask, lid, COLORS["stable"])
+def _draw_followup_lesions(ax, labels_bl, labels_fu, status_map: Dict[int, str]):
+    """Draw follow-up lesions colored by status."""
+    # Get all unique IDs from both baseline and follow-up
+    all_ids = set(np.unique(labels_bl)) | set(np.unique(labels_fu))
+    all_ids.discard(0)
 
-    # Disappeared (green) - show from baseline
-    for lid in disappeared:
-        mask = labels_bl == lid
-        if np.any(mask):
-            _draw_single_lesion(ax, mask, lid, COLORS["disappeared"])
+    for lid in all_ids:
+        status = status_map.get(lid, "present")
+        color = COLORS.get(status, COLORS["present"])
 
-    # New (red)
-    for lid in new:
-        mask = labels_fu == lid
-        if np.any(mask):
-            _draw_single_lesion(ax, mask, lid, COLORS["new"])
+        # Determine which mask to use based on status
+        if status == "absent":
+            # Absent lesions: show from baseline with dashed outline
+            mask = labels_bl == lid
+            if np.any(mask):
+                ax.contour(
+                    mask,
+                    levels=[0.5],
+                    colors=[color],
+                    linewidths=1.0,
+                    linestyles="dashed",
+                )
+                cy, cx = ndimage.center_of_mass(mask)
+                ax.text(
+                    cx,
+                    cy,
+                    str(lid),
+                    fontsize=6,
+                    fontweight="bold",
+                    color="white",
+                    ha="center",
+                    va="center",
+                    bbox=dict(
+                        boxstyle="circle,pad=0.1",
+                        facecolor=color,
+                        edgecolor="white",
+                        linewidth=0.5,
+                    ),
+                )
+        elif status == "new":
+            # New lesions: show from follow-up
+            mask = labels_fu == lid
+            if np.any(mask):
+                _draw_single_lesion(ax, mask, lid, color)
+        else:
+            # Present, Enlarged, Shrinking, Merged, Split: show from follow-up
+            mask = labels_fu == lid
+            if np.any(mask):
+                _draw_single_lesion(ax, mask, lid, color)
 
 
 def _draw_single_lesion(ax, mask, lid, color):
-    """Draw a single lesion with fill, outline, and ID."""
+    """Draw a single lesion with fill, outline, and small ID."""
+    if not np.any(mask):
+        return
+
     # Semi-transparent fill
     overlay = np.zeros((*mask.shape, 4))
     overlay[mask, :3] = color
-    overlay[mask, 3] = 0.6
+    overlay[mask, 3] = 0.5
     ax.imshow(overlay)
 
     # Outline
-    ax.contour(mask, levels=[0.5], colors=[color], linewidths=2)
+    ax.contour(mask, levels=[0.5], colors=[color], linewidths=1.5)
 
-    # ID label
+    # ID label (small)
     cy, cx = ndimage.center_of_mass(mask)
     ax.text(
         cx,
         cy,
         str(lid),
-        fontsize=9,
+        fontsize=6,
         fontweight="bold",
         color="white",
         ha="center",
         va="center",
-        bbox=dict(boxstyle="circle,pad=0.2", facecolor=color, edgecolor="white"),
+        bbox=dict(
+            boxstyle="circle,pad=0.1",
+            facecolor=color,
+            edgecolor="white",
+            linewidth=0.5,
+        ),
     )
 
 
@@ -262,33 +397,31 @@ def _find_best_slices(labels_bl, labels_fu, axis, num_slices: int) -> List[int]:
         fu_ids = set(np.unique(fu)) - {0}
 
         # Score based on lesion presence and change activity
-        stable = len(bl_ids & fu_ids)
-        disappeared = len(bl_ids - fu_ids)
+        present = len(bl_ids & fu_ids)
+        absent = len(bl_ids - fu_ids)
         new = len(fu_ids - bl_ids)
 
         # Prioritize slices with changes
-        score = stable + disappeared * 3 + new * 3
+        score = present + absent * 3 + new * 3
         if score > 0:
             slice_scores.append((s, score))
 
     if not slice_scores:
-        # No lesions found, return evenly spaced slices
         return list(np.linspace(n // 4, 3 * n // 4, num_slices, dtype=int))
 
-    # Sort by score and pick top slices, but ensure they're spread out
+    # Sort by score and pick top slices, spread out
     slice_scores.sort(key=lambda x: x[1], reverse=True)
 
     selected = []
-    min_distance = max(5, n // (num_slices + 1))  # Minimum spacing between slices
+    min_distance = max(5, n // (num_slices + 1))
 
     for s, score in slice_scores:
         if len(selected) >= num_slices:
             break
-        # Check if this slice is far enough from already selected
         if all(abs(s - sel) >= min_distance for sel in selected):
             selected.append(s)
 
-    # If we couldn't get enough spread-out slices, just take the top ones
+    # Fill remaining slots
     if len(selected) < num_slices:
         for s, score in slice_scores:
             if s not in selected:

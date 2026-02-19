@@ -12,7 +12,7 @@ Track lesions between baseline and follow-up MRI scans to detect:
 from .core import (
     # Main functions
     run_tracking,
-    track_mslesseg,
+    track,
     # Core functions (if needed separately)
     track_lesions,
     label_lesions,
@@ -22,7 +22,7 @@ from .core import (
 )
 
 # I/O utilities
-from .utils import load_nifti, save_nifti
+from .utils import load_nifti, save_nifti, dice_score, lesion_dice_score
 
 # Optional visualization
 try:
@@ -35,13 +35,15 @@ __version__ = "2.0.0"
 __all__ = [
     # Main API
     "run_tracking",
-    "track_mslesseg",
+    "track",
     # Core functions
     "track_lesions",
     "label_lesions",
     # I/O
     "load_nifti",
     "save_nifti",
+    "dice_score",
+    "lesion_dice_score",
     # Registration
     "register_to_baseline",
     "apply_transform",

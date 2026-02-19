@@ -2,10 +2,12 @@
 
 tracking:
   # Minimum overlap ratio to consider lesions as matched (0-1)
-  overlap_threshold: 0.3
+  # IMPROVEMENT: lowered from 0.3 to 0.2 for more lenient matching
+  overlap_threshold: 0.2
   
   # Maximum centroid distance for matching (in mm)
-  distance_threshold_mm: 10.0
+  # IMPROVEMENT: reduced from 10.0 to 8.0 to prevent false matches
+  distance_threshold_mm: 8.0
   
   # Relative volume increase threshold to classify as 'growing'
   growth_threshold: 0.20
@@ -15,7 +17,8 @@ tracking:
 
 labeling:
   # Minimum number of voxels to consider as a valid lesion
-  min_lesion_voxels: 3
+  # IMPROVEMENT: increased from 3 to 5 to filter out noise
+  min_lesion_voxels: 5
   
   # Connectivity for connected component analysis (6, 18, or 26)
   # 6: face connectivity only
