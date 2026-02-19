@@ -9,20 +9,22 @@ Track lesions between baseline and follow-up MRI scans to detect:
 - Stable lesions
 """
 
-from .core import (
+from .main import (
     # Main functions
     run_tracking,
-    track,
-    # Core functions (if needed separately)
-    track_lesions,
-    label_lesions,
-    # Registration
-    register_to_baseline,
-    apply_transform,
 )
+
+# Labeling and Tracking operation
+from .lesion_ops import label_lesions, track_lesions
+
+# Registration Functionality
+from .registration import register_to_baseline, apply_transform
 
 # I/O utilities
 from .utils import load_nifti, save_nifti, dice_score, lesion_dice_score
+
+# Reporting and Saving
+from .reporting import print_summary, save_results
 
 # Optional visualization
 try:
@@ -35,7 +37,6 @@ __version__ = "2.0.0"
 __all__ = [
     # Main API
     "run_tracking",
-    "track",
     # Core functions
     "track_lesions",
     "label_lesions",
@@ -49,4 +50,7 @@ __all__ = [
     "apply_transform",
     # Visualization
     "visualize_tracking",
+    # Reporting and Saving
+    "print_summary",
+    "save_results"
 ]

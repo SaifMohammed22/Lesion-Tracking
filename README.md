@@ -1,156 +1,121 @@
-# LST Longitudinal Pipeline - Python Implementation
+## Lesion Tracking Between Two Timepoints
 
-Python implementation of the algorithm from:
+### Overview
 
-**"Automated segmentation of changes in FLAIR-hyperintense white matter lesions in multiple sclerosis on serial magnetic resonance imaging"**
+This repository provides a lightweight pipeline to **track MS lesions** between a baseline and a follow-up scan.  
+Given binary lesion masks at both timepoints (registered or unregistered), it:
 
-## Overview
+- Registers follow-up to baseline (via ANTsPy)
+- Labels individual lesions
+- Matches lesions across time
+- Classifies each lesion as **Present**, **Enlarged**, **Shrinking**, **Absent**, **Merged**, **Split**, or **New**
+- Saves labeled NIfTI volumes, CSV/JSON summaries, and optional visualizations
 
-This tool detects new, enlarging, shrinking, and disappearing MS lesions using voxel-wise statistical testing within a joint lesion map. It compares FLAIR intensity changes against a null distribution estimated from normal-appearing white matter (NAWM).
-
-## Features
-
-- **Tissue Segmentation**: Automatic WM/GM segmentation from T1 images
-- **Lesion Filling**: Fill lesions with NAWM intensities for better registration
-- **Registration**: ANTs-based registration of follow-up to baseline
-- **Bias Correction**: N4 bias field correction
-- **Intensity Normalization**: GM-referenced intensity normalization
-- **Statistical Testing**: NAWM-based null distribution for change detection
-
-## Installation
+### Installation
 
 ```bash
 conda env create --file environment.yml
 conda activate lesion_tracking
 ```
 
-## Quick Start
+Make sure **ANTsPy** (`antspyx`) is installed in this environment for registration:
+
+```bash
+pip install antspyx
+```
+
+### Quick start (high‑level pipeline)
 
 ```python
-from lesion_tracker import run_lst_longitudinal
+from lesion_tracker import run_tracking
 
-results = run_lst_longitudinal(
-    baseline_dir="MSLesSeg Dataset/train/P1/T1",
-    followup_dir="MSLesSeg Dataset/train/P1/T2",
-    output_dir="./output/P1_T1_T2",
-    patient_id="P1",
-    baseline_tp="T1",
-    followup_tp="T2"
+results = run_tracking(
+    baseline_flair="MSLesSeg Dataset/train/P1/T1/P1_T1_FLAIR.nii.gz",
+    baseline_mask="MSLesSeg Dataset/train/P1/T1/P1_T1_MASK.nii.gz",
+    followup_flair="MSLesSeg Dataset/train/P1/T2/P1_T2_FLAIR.nii.gz",
+    followup_mask="MSLesSeg Dataset/train/P1/T2/P1_T2_MASK.nii.gz",
+    output_dir="./output/P1_T1_T2",      # where reports and NIfTIs are saved
+    registration_type="Affine",          # "Rigid", "Affine", or "SyN"
+    min_lesion_size=7,                   # voxels
+    change_threshold=0.25,               # volume change ratio
+    save_visualization=True,
+    num_slices=12,
 )
 
-print(f"New lesions: {results['statistics']['num_new_lesions']}")
-print(f"Disappeared: {results['statistics']['num_disappeared_lesions']}")
+print(results["summary"])
 ```
 
-## Detailed Usage
+You can also run the example directly from the project root:
+
+```bash
+python lesion_tracker/main.py
+```
+
+### Using only lesion matching
 
 ```python
-from lesion_tracker import LSTLongitudinal
+import numpy as np
+from lesion_tracker import track_lesions, label_lesions
 
-pipeline = LSTLongitudinal(
-    p_threshold=0.05,                    # Statistical significance threshold
-    min_lesion_size=3,                   # Minimum lesion size in voxels
-    registration_type='Affine',          # 'Rigid', 'Affine', or 'SyN'
-    apply_bias_correction=True,          # Apply N4 bias correction
-    tissue_segmentation_method='kmeans'  # 'otsu', 'kmeans', or 'sitk'
+# baseline_mask and followup_mask are 3D binary NumPy arrays in the same space
+
+results = track_lesions(
+    baseline_mask=baseline_mask,
+    followup_mask=followup_mask,
+    min_lesion_size=5,
+    change_threshold=0.25,
+    max_distance_mm=20.0,
+    voxel_spacing=(1.0, 1.0, 1.0),
 )
 
-results = pipeline.run_pipeline(
-    t1_baseline_path="path/to/baseline_t1.nii.gz",
-    flair_baseline_path="path/to/baseline_flair.nii.gz",
-    lesions_baseline_path="path/to/baseline_lesions.nii.gz",
-    t1_followup_path="path/to/followup_t1.nii.gz",
-    flair_followup_path="path/to/followup_flair.nii.gz",
-    lesions_followup_path="path/to/followup_lesions.nii.gz",
-    output_dir="./output"
-)
+print(results["summary"])
+lesions = results["lesions"]  # list of per‑lesion records
 ```
 
-## Algorithm Workflow
+### Project structure (core modules)
 
-```
-Input: T1_baseline, FLAIR_baseline, T1_followup, FLAIR_followup, 
-       Lesions_baseline, Lesions_followup
-
-Step 1: Tissue Segmentation
-        Extract WM, GM from T1 baseline using k-means/Otsu
-
-Step 2: Lesion Filling
-        Fill lesions in T1 images with local NAWM intensities
-
-Step 3: Registration
-        Register follow-up to baseline (Affine/Rigid/SyN)
-
-Step 4: Joint Lesion Map
-        Joint_lesions = Lesions_baseline OR Lesions_followup_registered
-
-Step 5: NAWM Extraction
-        NAWM = WM AND NOT Joint_lesions
-
-Step 6: Preprocessing
-        - N4 bias field correction on FLAIR images
-        - GM-referenced intensity normalization
-
-Step 7: Intensity Difference
-        FLAIR_diff = FLAIR_followup - FLAIR_baseline
-
-Step 8: Statistical Testing
-        For each voxel in Joint_lesions:
-            z_score = (diff - NAWM_mean) / NAWM_std
-            p_value = 2 * (1 - Φ(|z_score|))
-            
-            if p_value < threshold AND diff > 0:
-                → New/expanding lesion
-            elif p_value < threshold AND diff < 0:
-                → Shrinking/disappearing lesion
-            else:
-                → Stable lesion
-
-Output: new_lesions.nii.gz, disappeared_lesions.nii.gz, 
-        stable_lesions.nii.gz, statistics.json
-```
-
-## Output Files
-
-| File | Description |
-|------|-------------|
-| `new_lesions.nii.gz` | Mask of new/expanding lesions |
-| `disappeared_lesions.nii.gz` | Mask of shrinking/disappearing lesions |
-| `stable_lesions.nii.gz` | Mask of stable lesions |
-| `joint_lesions.nii.gz` | Union of baseline and follow-up lesions |
-| `nawm_mask.nii.gz` | Normal-appearing white matter mask |
-| `wm_mask.nii.gz` | White matter segmentation |
-| `flair_difference.nii.gz` | FLAIR intensity difference map |
-| `statistics.json` | Summary statistics |
-
-## Project Structure
-
-```
+```text
 lesion_tracker/
-├── __init__.py           # Package exports
-├── change_detection.py   # Main LST longitudinal pipeline
-├── segmentation.py       # Tissue segmentation (WM/GM)
-├── preprocessing.py      # Lesion filling, bias correction, normalization
-├── registration.py       # ANTs-based registration
-└── utils.py              # I/O utilities
+├── __init__.py       # Public API (run_tracking, track_lesions, register_to_baseline, etc.)
+├── main.py           # High‑level pipeline and example CLI entry point
+├── registration.py   # ANTs‑based image registration utilities
+├── lesion_ops.py     # Lesion labeling, matching, and classification logic
+├── reporting.py      # Printing, CSV/JSON/TXT reports, NIfTI and visualization saving
+├── utils.py          # NIfTI I/O and Dice utilities
+└── visualization.py  # Matplotlib‑based tracking visualization
 ```
 
-## Requirements
+### Data used for testing
 
-- Python >= 3.8
-- nibabel
-- numpy
-- scipy
-- scikit-learn
-- SimpleITK
-- ANTsPy
+The examples and tests in this repository use the **MSLesSeg** multiple‑sclerosis lesion segmentation dataset (MICCAI challenge data) in a local folder layout such as:
 
-## Citation
-
-If you use this tool, please cite the original paper:
-
+```text
+MSLesSeg Dataset/
+└── train/
+    ├── P1/
+    │   ├── T1/
+    │   │   ├── P1_T1_FLAIR.nii.gz
+    │   │   └── P1_T1_MASK.nii.gz
+    │   └── T2/
+    │       ├── P1_T2_FLAIR.nii.gz
+    │       └── P1_T2_MASK.nii.gz
+    └── P5/
+        └── ...
 ```
-Schmidt P, et al. "Automated segmentation of changes in FLAIR-hyperintense 
-white matter lesions in multiple sclerosis on serial magnetic resonance imaging."
-NeuroImage: Clinical. 2019.
-```
+
+Paths in the examples (e.g. `MSLesSeg Dataset/train/P1/T1/P1_T1_FLAIR.nii.gz`) assume you have downloaded the MSLesSeg data and organized it in a similar way. You can adapt the paths to your own dataset as long as you provide:
+
+- A baseline FLAIR image and binary lesion mask
+- A follow‑up FLAIR image and binary lesion mask
+
+Dataset is available at https://springernature.figshare.com/articles/dataset/MSLesSeg_baseline_and_benchmarking_of_a_new_Multiple_Sclerosis_Lesion_Segmentation_dataset/27919209?file=53623946
+
+### Requirements (main runtime)
+
+- Python ≥ 3.8
+- `numpy`
+- `scipy`
+- `nibabel`
+- `matplotlib` (for visualization)
+- `antspyx` (for registration; optional if you supply pre‑registered masks)
+

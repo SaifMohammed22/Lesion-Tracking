@@ -221,4 +221,5 @@ __marimo__/
 .vscode/
 lesion_tracker/__pycache__/
 MSLesSeg Dataset/
+MSLesSeg_RAW/
 output/
