@@ -19,7 +19,10 @@ from typing import Dict, Any
 import nibabel as nib
 import numpy as np
 
-from utils import lesion_dice_score, load_nifti, save_nifti
+try:
+    from .utils import lesion_dice_score, load_nifti, save_nifti
+except ImportError:
+    from utils import lesion_dice_score, load_nifti, save_nifti
 
 def print_summary(results: Dict[str, Any]):
     """Print tracking results with detailed lesion table."""
@@ -120,12 +123,10 @@ def save_results(
     output_dir: str,
     baseline_flair: str,
     followup_flair: str,
-    save_visualization: bool = True,
-    num_slices: int = 10,
     baseline_mask_path: str = None,
     followup_mask_path: str = None,
 ):
-    """Save tracking results to output directory (JSON, CSV, TXT, and PNG)."""
+    """Save tracking results to output directory (JSON, CSV, TXT, and NIfTI)."""
     os.makedirs(output_dir, exist_ok=True)
     print(f"\nSaving results to: {output_dir}")
 
@@ -314,28 +315,3 @@ def save_results(
 
         except Exception as e:
             print(f"  Dice computation failed: {e}")
-
-    # =========================================================================
-    # 6. Save PNG visualization
-    # =========================================================================
-    if save_visualization:
-        try:
-            try:
-                from .visualization import visualize_tracking
-            except ImportError:
-                from visualization import visualize_tracking
-
-            png_path = os.path.join(output_dir, "tracking_visualization.png")
-            visualize_tracking(
-                flair_baseline_path=baseline_flair,
-                flair_followup_path=followup_flair,
-                baseline_labeled=results["baseline_labeled"],
-                followup_labeled=results["followup_labeled"],
-                lesions=results["lesions"],
-                num_slices=num_slices,
-                save_path=png_path,
-                show=False,
-            )
-            print("  - tracking_visualization.png")
-        except ImportError as e:
-            print(f"Visualization failed: {e}")

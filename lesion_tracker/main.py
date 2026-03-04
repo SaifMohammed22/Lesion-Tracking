@@ -15,10 +15,16 @@ from typing import Dict, Any, Optional
 import nibabel as nib
 import numpy as np
 
-from utils import load_nifti, save_nifti
-from registration import register_to_baseline, apply_transform
-from lesion_ops import track_lesions, label_lesions
-from reporting import print_summary, save_results
+try:
+    from .utils import load_nifti, save_nifti
+    from .registration import register_to_baseline, apply_transform
+    from .lesion_ops import track_lesions, label_lesions
+    from .reporting import print_summary, save_results, convert_numpy
+except ImportError:
+    from utils import load_nifti, save_nifti
+    from registration import register_to_baseline, apply_transform
+    from lesion_ops import track_lesions, label_lesions
+    from reporting import print_summary, save_results, convert_numpy
 
 
 # =============================================================================
@@ -86,7 +92,6 @@ def run_tracking(
 
     # Save minimal results if output_dir specified
     if output_dir:
-        from lesion_tracker.reporting import convert_numpy
         import json
         output_data = {
             "summary": results["summary"],

@@ -9,13 +9,13 @@ Given binary lesion masks at both timepoints (registered or unregistered), it:
 - Labels individual lesions
 - Matches lesions across time
 - Classifies each lesion as **Present**, **Enlarged**, **Shrinking**, **Absent**, **Merged**, **Split**, or **New**
-- Saves labeled NIfTI volumes, CSV/JSON summaries, and optional visualizations
+- Saves labeled NIfTI volumes and CSV/JSON summaries
 
 ### Installation
 
 ```bash
 conda env create --file environment.yml
-conda activate lesion_tracking
+conda activate lesion_env
 ```
 
 Make sure **ANTsPy** (`antspyx`) is installed in this environment for registration:
@@ -38,8 +38,6 @@ results = run_tracking(
     registration_type="Affine",          # "Rigid", "Affine", or "SyN"
     min_lesion_size=7,                   # voxels
     change_threshold=0.25,               # volume change ratio
-    save_visualization=True,
-    num_slices=12,
 )
 
 print(results["summary"])
@@ -80,9 +78,8 @@ lesion_tracker/
 ├── main.py           # High‑level pipeline and example CLI entry point
 ├── registration.py   # ANTs‑based image registration utilities
 ├── lesion_ops.py     # Lesion labeling, matching, and classification logic
-├── reporting.py      # Printing, CSV/JSON/TXT reports, NIfTI and visualization saving
-├── utils.py          # NIfTI I/O and Dice utilities
-└── visualization.py  # Matplotlib‑based tracking visualization
+├── reporting.py      # Printing, CSV/JSON/TXT reports, and NIfTI saving
+└── utils.py          # NIfTI I/O and Dice utilities
 ```
 
 ### Data used for testing
@@ -112,10 +109,10 @@ Dataset is available at https://springernature.figshare.com/articles/dataset/MSL
 
 ### Requirements (main runtime)
 
-- Python ≥ 3.8
+- Python ≥ 3.9
 - `numpy`
 - `scipy`
 - `nibabel`
-- `matplotlib` (for visualization)
+- `pandas`
 - `antspyx` (for registration; optional if you supply pre‑registered masks)
 
