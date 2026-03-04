@@ -1,3 +1,63 @@
+from typing import Dict, Any, Optional, Tuple, List, Set
+
+
+from scipy.optimize import linear_sum_assignment
+import numpy as np
+from scipy import ndimage
+
+
+def track_lesions_hungarian(
+    baseline_mask: np.ndarray,
+    followup_mask: np.ndarray,
+    min_lesion_size: int = 3,
+    min_overlap: float = 0.1,
+    voxel_spacing: tuple = (1.0, 1.0, 1.0),
+) -> dict:
+    """
+    Track lesions using overlap-based matching and Hungarian algorithm.
+    Returns dict with assignments and label maps.
+    """
+    bl_labeled, num_bl = label_lesions(baseline_mask, min_lesion_size)
+    fu_labeled, num_fu = label_lesions(followup_mask, min_lesion_size)
+
+    # Build IoU matrix (num_bl x num_fu)
+    iou_matrix = np.zeros((num_bl, num_fu), dtype=np.float32)
+    for i in range(num_bl):
+        bl_mask = bl_labeled == (i + 1)
+        for j in range(num_fu):
+            fu_mask = fu_labeled == (j + 1)
+            intersection = np.logical_and(bl_mask, fu_mask).sum()
+            union = np.logical_or(bl_mask, fu_mask).sum()
+            iou = intersection / union if union > 0 else 0.0
+            iou_matrix[i, j] = iou
+
+    # Convert IoU to cost (maximize IoU = minimize cost)
+    cost_matrix = 1.0 - iou_matrix
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    assignments = []
+    for r, c in zip(row_ind, col_ind):
+        if iou_matrix[r, c] >= min_overlap:
+            assignments.append({
+                "baseline_label": int(r + 1),
+                "followup_label": int(c + 1),
+                "iou": float(iou_matrix[r, c]),
+            })
+
+    # Find unmatched baseline (Absent) and followup (New) lesions
+    matched_bl = set(a["baseline_label"] for a in assignments)
+    matched_fu = set(a["followup_label"] for a in assignments)
+    absent = [i + 1 for i in range(num_bl) if (i + 1) not in matched_bl]
+    new = [j + 1 for j in range(num_fu) if (j + 1) not in matched_fu]
+
+    return {
+        "assignments": assignments,
+        "absent": absent,
+        "new": new,
+        "baseline_labeled": bl_labeled,
+        "followup_labeled": fu_labeled,
+        "iou_matrix": iou_matrix,
+    }
 """
 Core lesion operations and tracking logic.
 
@@ -10,21 +70,17 @@ This module contains the pure numerical logic for:
 - Building tracked label maps and summary statistics
 """
 
-from typing import Dict, Any, Optional, Tuple, List, Set
-
-import numpy as np
-from scipy import ndimage
-
-
 # =============================================================================
 # Constants
 # =============================================================================
 
-# Minimum overlap ratio (IoU) to consider lesions as overlapping
-MIN_OVERLAP_RATIO = 0.10
 
+# Minimum overlap ratio (IoU) to consider lesions as overlapping
+MIN_OVERLAP_RATIO = 0.10  # Stricter for merge/split
+# Minimum fraction of target lesion volume covered by overlaps for merge/split
+MERGE_SPLIT_MIN_VOLUME_FRAC = 0.3
 # Volume change threshold for enlarged/shrinking classification
-CHANGE_THRESHOLD = 0.20
+CHANGE_THRESHOLD = 0.25
 
 
 def label_lesions(mask: np.ndarray, min_size: int = 3) -> Tuple[np.ndarray, int]:
@@ -35,7 +91,7 @@ def label_lesions(mask: np.ndarray, min_size: int = 3) -> Tuple[np.ndarray, int]
     -------
     labeled_array, num_lesions
     """
-    struct = ndimage.generate_binary_structure(3, 3)  # 26-connectivity
+    struct = ndimage.generate_binary_structure(3, 2)  # 26-connectivity
     labeled, num = ndimage.label(mask > 0, structure=struct)
 
     # Filter small lesions and relabel sequentially
@@ -51,185 +107,156 @@ def label_lesions(mask: np.ndarray, min_size: int = 3) -> Tuple[np.ndarray, int]
     return filtered, new_label - 1
 
 
+
+
+# --- MAIN: Hungarian-based algorithm ---
 def track_lesions(
     baseline_mask: np.ndarray,
     followup_mask: np.ndarray,
     min_lesion_size: int = 3,
-    change_threshold: float = CHANGE_THRESHOLD,
+    change_threshold: float = 0.25,
     max_distance_mm: float = 20.0,
     voxel_spacing: tuple = (1.0, 1.0, 1.0),
 ) -> Dict[str, Any]:
     """
-    Track lesions between baseline and follow-up with comprehensive status classification.
-
-    Statuses: Present, Enlarged, Shrinking, Absent, Merged, Split, New
+    Track lesions using overlap-based Hungarian algorithm (main version).
+    Outputs same structure as previous implementation.
     """
-    # Label lesions in each timepoint
+    # Label lesions
     bl_labeled, num_bl = label_lesions(baseline_mask, min_lesion_size)
     fu_labeled, num_fu = label_lesions(followup_mask, min_lesion_size)
 
-    # Get lesion properties (centroid, volume) for each lesion
+    # Build IoU matrix
+    iou_matrix = np.zeros((num_bl, num_fu), dtype=np.float32)
+    for i in range(num_bl):
+        bl_mask = bl_labeled == (i + 1)
+        for j in range(num_fu):
+            fu_mask = fu_labeled == (j + 1)
+            intersection = np.logical_and(bl_mask, fu_mask).sum()
+            union = np.logical_or(bl_mask, fu_mask).sum()
+            iou = intersection / union if union > 0 else 0.0
+            iou_matrix[i, j] = iou
+
+    # Hungarian assignment
+    from scipy.optimize import linear_sum_assignment
+    cost_matrix = 1.0 - iou_matrix
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    # Get lesion properties
     bl_props = _get_lesion_properties(bl_labeled, num_bl, voxel_spacing)
     fu_props = _get_lesion_properties(fu_labeled, num_fu, voxel_spacing)
 
-    # Build overlap matrix (includes distance filtering)
+    # Build overlap matrix for merge/split detection
     overlap_matrix = _build_overlap_matrix(
         bl_labeled, fu_labeled, num_bl, num_fu, bl_props, fu_props, max_distance_mm
     )
 
-    # Track which lesions have been matched
-    matched_bl: Set[int] = set()
-    matched_fu: Set[int] = set()
 
-    # Results: list of lesion records
-    lesions: List[Dict[str, Any]] = []
+    # Initialize matched sets and lesion list
+    matched_bl = set()
+    matched_fu = set()
+    lesions = []
 
-    # -------------------------------------------------------------------------
-    # Step 1: Detect MERGES (multiple baseline → one follow-up)
-    # -------------------------------------------------------------------------
+    # Detect merges and splits
     merge_groups = _detect_merges(overlap_matrix, bl_props, fu_props, num_bl, num_fu)
+    split_groups = _detect_splits(overlap_matrix, bl_props, fu_props, num_bl, num_fu, matched_bl, matched_fu)
 
+    # Track merges
     for fu_id, bl_ids in merge_groups.items():
-        # Find the largest baseline lesion (will carry the merged volume)
         largest_bl = max(bl_ids, key=lambda x: bl_props[x]["volume"])
         fu_vol = fu_props[fu_id]["volume"]
-
         for bl_id in bl_ids:
             bl_vol = bl_props[bl_id]["volume"]
             if bl_id == largest_bl:
-                # Largest baseline lesion carries the follow-up volume
-                lesions.append(
-                    {
-                        "id": bl_id,
-                        "status": "Merged",
-                        "baseline_volume": int(bl_vol),
-                        "followup_volume": int(fu_vol),
-                        "merged_with": [x for x in bl_ids if x != bl_id],
-                        "centroid": list(bl_props[bl_id]["centroid_mm"]),
-                    }
-                )
+                lesions.append({
+                    "id": bl_id,
+                    "status": "Merged",
+                    "baseline_volume": int(bl_vol),
+                    "followup_volume": int(fu_vol),
+                    "merged_with": [x for x in bl_ids if x != bl_id],
+                    "centroid": list(bl_props[bl_id]["centroid_mm"]),
+                })
             else:
-                # Other merged lesions have 0 follow-up volume
-                lesions.append(
-                    {
-                        "id": bl_id,
-                        "status": "Merged",
-                        "baseline_volume": int(bl_vol),
-                        "followup_volume": 0,
-                        "merged_with": [x for x in bl_ids if x != bl_id],
-                        "centroid": list(bl_props[bl_id]["centroid_mm"]),
-                    }
-                )
+                lesions.append({
+                    "id": bl_id,
+                    "status": "Merged",
+                    "baseline_volume": int(bl_vol),
+                    "followup_volume": 0,
+                    "merged_with": [x for x in bl_ids if x != bl_id],
+                    "centroid": list(bl_props[bl_id]["centroid_mm"]),
+                })
             matched_bl.add(bl_id)
         matched_fu.add(fu_id)
 
-    # -------------------------------------------------------------------------
-    # Step 2: Detect SPLITS (one baseline → multiple follow-up)
-    # -------------------------------------------------------------------------
-    split_groups = _detect_splits(
-        overlap_matrix, bl_props, fu_props, num_bl, num_fu, matched_bl, matched_fu
-    )
-
+    # Track splits
     for bl_id, fu_ids in split_groups.items():
         bl_vol = bl_props[bl_id]["volume"]
-        # Sum of all split parts
         fu_vol_total = sum(fu_props[fid]["volume"] for fid in fu_ids)
-
-        lesions.append(
-            {
-                "id": bl_id,
-                "status": "Split",
-                "baseline_volume": int(bl_vol),
-                "followup_volume": int(fu_vol_total),
-                "split_count": len(fu_ids),
-                "centroid": list(bl_props[bl_id]["centroid_mm"]),
-            }
-        )
+        lesions.append({
+            "id": bl_id,
+            "status": "Split",
+            "baseline_volume": int(bl_vol),
+            "followup_volume": int(fu_vol_total),
+            "split_count": len(fu_ids),
+            "centroid": list(bl_props[bl_id]["centroid_mm"]),
+        })
         matched_bl.add(bl_id)
         matched_fu.update(fu_ids)
 
-    # -------------------------------------------------------------------------
-    # Step 3: Standard 1:1 matching for remaining lesions
-    # -------------------------------------------------------------------------
-    matches = _match_lesions_1to1(
-        bl_labeled,
-        fu_labeled,
-        bl_props,
-        fu_props,
-        matched_bl,
-        matched_fu,
-        max_distance_mm,
-        voxel_spacing,
-    )
-
-    # -------------------------------------------------------------------------
-    # Step 4: Classify matched lesions (Present, Enlarged, Shrinking)
-    # -------------------------------------------------------------------------
-    for bl_id, match_info in matches.items():
-        if match_info is None:
-            continue
-
-        fu_id = match_info["fu_id"]
-        bl_vol = bl_props[bl_id]["volume"]
-        fu_vol = fu_props[fu_id]["volume"]
-        change_ratio = (fu_vol - bl_vol) / bl_vol if bl_vol > 0 else 0
-
-        if change_ratio > change_threshold:
-            status = "Enlarged"
-        elif change_ratio < -change_threshold:
-            status = "Shrinking"
-        else:
-            status = "Present"
-
-        lesions.append(
-            {
+    # Standard 1:1 matching for remaining lesions
+    matches = {}
+    for r, c in zip(row_ind, col_ind):
+        bl_id = r + 1
+        fu_id = c + 1
+        if bl_id not in matched_bl and fu_id not in matched_fu and iou_matrix[r, c] > 0:
+            bl_vol = bl_props[bl_id]["volume"]
+            fu_vol = fu_props[fu_id]["volume"]
+            change_ratio = (fu_vol - bl_vol) / bl_vol if bl_vol > 0 else 0
+            if change_ratio > change_threshold:
+                status = "Enlarged"
+            elif change_ratio < -change_threshold:
+                status = "Shrinking"
+            else:
+                status = "Present"
+            lesions.append({
                 "id": bl_id,
                 "status": status,
                 "baseline_volume": int(bl_vol),
                 "followup_volume": int(fu_vol),
                 "change_ratio": round(change_ratio, 4),
                 "centroid": list(bl_props[bl_id]["centroid_mm"]),
-            }
-        )
-        matched_bl.add(bl_id)
-        matched_fu.add(fu_id)
+            })
+            matched_bl.add(bl_id)
+            matched_fu.add(fu_id)
+            matches[bl_id] = {"fu_id": fu_id}
 
-    # -------------------------------------------------------------------------
-    # Step 5: Mark unmatched baseline lesions as ABSENT
-    # -------------------------------------------------------------------------
+    # Absent lesions
     for bl_id in range(1, num_bl + 1):
         if bl_id not in matched_bl:
-            lesions.append(
-                {
-                    "id": bl_id,
-                    "status": "Absent",
-                    "baseline_volume": int(bl_props[bl_id]["volume"]),
-                    "followup_volume": 0,
-                    "centroid": list(bl_props[bl_id]["centroid_mm"]),
-                }
-            )
+            lesions.append({
+                "id": bl_id,
+                "status": "Absent",
+                "baseline_volume": int(bl_props[bl_id]["volume"]),
+                "followup_volume": 0,
+                "centroid": list(bl_props[bl_id]["centroid_mm"]),
+            })
 
-    # -------------------------------------------------------------------------
-    # Step 6: Mark unmatched follow-up lesions as NEW
-    # -------------------------------------------------------------------------
+    # New lesions
     next_id = num_bl + 1
     for fu_id in range(1, num_fu + 1):
         if fu_id not in matched_fu:
-            lesions.append(
-                {
-                    "id": next_id,
-                    "status": "New",
-                    "baseline_volume": 0,
-                    "followup_volume": int(fu_props[fu_id]["volume"]),
-                    "centroid": list(fu_props[fu_id]["centroid_mm"]),
-                }
-            )
+            lesions.append({
+                "id": next_id,
+                "status": "New",
+                "baseline_volume": 0,
+                "followup_volume": int(fu_props[fu_id]["volume"]),
+                "centroid": list(fu_props[fu_id]["centroid_mm"]),
+            })
             next_id += 1
 
-    # Sort lesions by ID
     lesions.sort(key=lambda x: x["id"])
 
-    # Create tracked follow-up label map
+    # Relabel follow-up mask using robust logic
     fu_tracked = _create_tracked_labels(
         fu_labeled,
         bl_labeled,
@@ -241,7 +268,6 @@ def track_lesions(
         num_fu,
     )
 
-    # Build summary
     summary = _build_summary(lesions, num_bl, num_fu)
 
     return {
@@ -340,16 +366,31 @@ def _detect_merges(
     """
     # For each follow-up lesion, find all baseline lesions it overlaps with
     fu_to_bl: Dict[int, List[int]] = {}
+    fu_to_bl_iou: Dict[int, List[float]] = {}
 
     for (bl_id, fu_id), iou in overlap_matrix.items():
         if fu_id not in fu_to_bl:
             fu_to_bl[fu_id] = []
+            fu_to_bl_iou[fu_id] = []
         fu_to_bl[fu_id].append(bl_id)
+        fu_to_bl_iou[fu_id].append(iou)
 
-    # Merge groups: fu_id maps to 2+ baseline lesions
-    merge_groups = {
-        fu_id: bl_ids for fu_id, bl_ids in fu_to_bl.items() if len(bl_ids) >= 2
-    }
+    merge_groups = {}
+    for fu_id, bl_ids in fu_to_bl.items():
+        if len(bl_ids) < 2:
+            continue
+        # Stricter: all overlaps must be >= MIN_OVERLAP_RATIO
+        ious = fu_to_bl_iou[fu_id]
+        if not all(iou >= MIN_OVERLAP_RATIO for iou in ious):
+            continue
+        # Stricter: sum of overlap voxels must cover enough of follow-up lesion
+        fu_region = fu_props[fu_id]["volume"]
+        overlap_voxels = sum(
+            (bl_props[bl_id]["volume"] * iou) for bl_id, iou in zip(bl_ids, ious)
+        )
+        if overlap_voxels / fu_region < MERGE_SPLIT_MIN_VOLUME_FRAC:
+            continue
+        merge_groups[fu_id] = bl_ids
 
     return merge_groups
 
@@ -371,6 +412,7 @@ def _detect_splits(
     """
     # For each baseline lesion, find all follow-up lesions it overlaps with
     bl_to_fu: Dict[int, List[int]] = {}
+    bl_to_fu_iou: Dict[int, List[float]] = {}
 
     for (bl_id, fu_id), iou in overlap_matrix.items():
         # Skip if already matched
@@ -379,12 +421,26 @@ def _detect_splits(
 
         if bl_id not in bl_to_fu:
             bl_to_fu[bl_id] = []
+            bl_to_fu_iou[bl_id] = []
         bl_to_fu[bl_id].append(fu_id)
+        bl_to_fu_iou[bl_id].append(iou)
 
-    # Split groups: bl_id maps to 2+ follow-up lesions
-    split_groups = {
-        bl_id: fu_ids for bl_id, fu_ids in bl_to_fu.items() if len(fu_ids) >= 2
-    }
+    split_groups = {}
+    for bl_id, fu_ids in bl_to_fu.items():
+        if len(fu_ids) < 2:
+            continue
+        # Stricter: all overlaps must be >= MIN_OVERLAP_RATIO
+        ious = bl_to_fu_iou[bl_id]
+        if not all(iou >= MIN_OVERLAP_RATIO for iou in ious):
+            continue
+        # Stricter: sum of overlap voxels must cover enough of baseline lesion
+        bl_region = bl_props[bl_id]["volume"]
+        overlap_voxels = sum(
+            (fu_props[fu_id]["volume"] * iou) for fu_id, iou in zip(fu_ids, ious)
+        )
+        if overlap_voxels / bl_region < MERGE_SPLIT_MIN_VOLUME_FRAC:
+            continue
+        split_groups[bl_id] = fu_ids
 
     return split_groups
 

@@ -1,3 +1,14 @@
+import numpy as np
+
+def convert_numpy(obj):
+    if isinstance(obj, np.generic):
+        return obj.item()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy(v) for v in obj]
+    else:
+        return obj
 """
 Reporting results and saving it
 """
@@ -8,7 +19,7 @@ from typing import Dict, Any
 import nibabel as nib
 import numpy as np
 
-from .utils import lesion_dice_score, load_nifti, save_nifti
+from utils import lesion_dice_score, load_nifti, save_nifti
 
 def print_summary(results: Dict[str, Any]):
     """Print tracking results with detailed lesion table."""

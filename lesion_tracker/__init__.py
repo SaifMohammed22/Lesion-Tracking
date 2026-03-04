@@ -15,7 +15,7 @@ from .main import (
 )
 
 # Labeling and Tracking operation
-from .lesion_ops import label_lesions, track_lesions
+from .lesion_ops import label_lesions, track_lesions, track_lesions_hungarian
 
 # Registration Functionality
 from .registration import register_to_baseline, apply_transform
@@ -40,6 +40,7 @@ __all__ = [
     # Core functions
     "track_lesions",
     "label_lesions",
+    "track_lesions_hungarian",
     # I/O
     "load_nifti",
     "save_nifti",
